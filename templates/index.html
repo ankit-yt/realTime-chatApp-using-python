@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Secure Chat (AES Demo)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1724;
+      --card: #0b1220;
+      --accent: #7dd3fc;
+      --muted: #94a3b8;
+      --me: #0ea5a4;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071020 0%, #0b1220 100%);color:#e6eef6}
+    .center {display:flex;align-items:center;justify-content:center;height:100%;padding:20px}
+    .card {width:100%;max-width:920px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.6);overflow:hidden}
+    .split {display:flex;min-height:520px}
+    .left {flex:0 0 340px;padding:28px;background:linear-gradient(180deg, rgba(125,211,252,0.03), rgba(125,211,252,0.01))}
+    .right {flex:1;padding:18px;display:flex;flex-direction:column}
+    h1{margin:0;font-size:20px;color:var(--accent)}
+    label{display:block;font-size:13px;color:var(--muted);margin-top:12px}
+    input[type=text], input[type=password] {width:100%;padding:10px;margin-top:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:#e6eef6}
+    button.primary{margin-top:16px;padding:10px 14px;border-radius:8px;border:0;background:linear-gradient(90deg,#06b6d4,#7dd3fc);color:#032;cursor:pointer}
+    .chat-window {flex:1;display:flex;flex-direction:column;padding:12px;gap:12px;overflow:hidden}
+    .messages {flex:1;padding:12px;border-radius:8px;background:linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.06));overflow:auto}
+    .msg {display:block;max-width:70%;margin-bottom:10px;padding:10px;border-radius:10px;line-height:1.2}
+    .msg.me {margin-left:auto;background:linear-gradient(90deg,#075985,#06b6d4);color:#022}
+    .msg.other {background:rgba(255,255,255,0.04)}
+    .meta {font-size:11px;color:var(--muted);margin-bottom:6px}
+    .encrypted {font-family:monospace;font-size:11px;color:#cbd5e1;margin-top:6px;opacity:0.9;word-break:break-all}
+    .input-area {display:flex;gap:8px;padding:8px;border-top:1px solid rgba(255,255,255,0.03)}
+    .input-area input {flex:1;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e6eef6}
+    .small {font-size:12px;color:var(--muted)}
+    @media (max-width:720px){ .split{flex-direction:column} .left{order:2} .right{order:1} }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <div class="card">
+      <div class="split">
+        <div class="left">
+          <h1>Secure Chat — AES Demo</h1>
+          <p class="small">Simple demo using AES-256-CBC (server-side). Enter a room name and a password (same for everyone) to derive the AES key.</p>
+
+          <label>Your name</label>
+          <input id="name" type="text" value="Ankit" />
+
+          <label>Room name</label>
+          <input id="room" type="text" value="classroom" />
+
+          <label>Room password (used to derive AES key)</label>
+          <input id="password" type="password" value="demo123" />
+
+          <button id="joinBtn" class="primary">Join Room</button>
+
+          <hr style="margin:18px 0;border:none;border-top:1px solid rgba(255,255,255,0.03)">
+
+          <div class="small">
+            <strong>How to demo:</strong>
+            <ul>
+              <li>Open two browser windows/tabs.</li>
+              <li>Use same room name and same password in both.</li>
+              <li>Send messages — you'll see the stored encrypted blob under each message (base64).</li>
+            </ul>
+          </div>
+
+        </div>
+
+        <div class="right">
+          <div class="chat-window">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px">
+              <div id="roomLabel" class="small">Not connected</div>
+              <div id="status" class="small">Waiting</div>
+            </div>
+
+            <div class="messages" id="messages"></div>
+
+            <div class="input-area">
+              <input id="msgInput" placeholder="Type a message..." disabled />
+              <button id="sendBtn" class="primary" disabled>Send</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"
+          integrity="sha384-0dS2wWl2Qx1wQ3k2q3g9rZ6m+oFh1bFgvj5oF6rYlq+z0Jf1fQJqZ6h0mYx2sF9s"
+          crossorigin="anonymous"></script>
+  <script src="{{ url_for('static', filename='chat.js') }}"></script>
+</body>
+</html>
