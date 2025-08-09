@@ -3,6 +3,7 @@ from flask_socketio import SocketIO, join_room, leave_room, emit
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
 import os, base64, time
 
 app = Flask(__name__)
@@ -22,6 +23,7 @@ def derive_key(password: str, salt: bytes) -> bytes:
         length=32,
         salt=salt,
         iterations=100_000,
+        backend=default_backend()
     )
     return kdf.derive(password.encode())
 
@@ -30,13 +32,13 @@ def encrypt_aes_cbc(key: bytes, plaintext: str) -> (bytes, bytes):
     iv = os.urandom(16)
     padder = padding.PKCS7(128).padder()
     padded = padder.update(plaintext.encode()) + padder.finalize()
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     ct = encryptor.update(padded) + encryptor.finalize()
     return iv, ct
 
 def decrypt_aes_cbc(key: bytes, iv: bytes, ciphertext: bytes) -> str:
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     decryptor = cipher.decryptor()
     padded = decryptor.update(ciphertext) + decryptor.finalize()
     unpadder = padding.PKCS7(128).unpadder()
@@ -55,6 +57,7 @@ def on_join(data):
     data = { 'name': str, 'room': str, 'password': str }
     We derive a key per user session using a deterministic salt per room for demo.
     """
+    print(f"Join request received: {data}")  # Debug log
     name = data.get('name', 'Anonymous')
     room = data.get('room', 'lobby')
     password = data.get('password', 'demo-pass')
@@ -62,7 +65,12 @@ def on_join(data):
     # For demo: use deterministic room salt so people joining same room with same password derive same key.
     # In a real system you'd use a secure key exchange.
     salt = (room + "_salt_demo").encode()[:16].ljust(16, b'\0')  # 16 bytes
-    key = derive_key(password, salt)
+    try:
+        key = derive_key(password, salt)
+    except Exception as e:
+        print(f"Key derivation error: {e}")
+        emit('error', {'msg': 'Failed to derive encryption key'}, room=request.sid)
+        return
 
     session_keys[request.sid] = {'key': key, 'room': room, 'name': name}
     join_room(room)
@@ -72,13 +80,20 @@ def on_join(data):
     # Send last few messages (showing encrypted blobs) so new user sees stored encrypted entries
     history = []
     for m in msgs[-30:]:
-        history.append({
-            'sender': m['sender'],
-            'plaintext': decrypt_aes_cbc(key, base64.b64decode(m['iv']), base64.b64decode(m['enc'])),
-            'encrypted': m['enc'],
-            'timestamp': m['ts']
-        })
+        try:
+            decrypted_msg = decrypt_aes_cbc(key, base64.b64decode(m['iv']), base64.b64decode(m['enc']))
+            history.append({
+                'sender': m['sender'],
+                'plaintext': decrypted_msg,
+                'encrypted': m['enc'],
+                'timestamp': m['ts']
+            })
+        except Exception as e:
+            print(f"Decryption error for history: {e}")
+            # Skip corrupted messages
+            continue
 
+    print(f"User {name} joined room {room}")  # Debug log
     emit('joined', {'room': room, 'name': name, 'history': history}, room=request.sid)
     emit('status', {'msg': f"{name} has joined the room."}, room=room)
 
@@ -88,9 +103,11 @@ def on_send_message(data):
     data = { 'message': str }
     Server will encrypt message for storage, store encrypted blob, then broadcast plaintext and encrypted blob for demo.
     """
+    print(f"Message received: {data}")  # Debug log
     sid = request.sid
     session = session_keys.get(sid)
     if not session:
+        print("Session not found for sid:", sid)  # Debug log
         emit('error', {'msg': 'Session not initialized. Join room first.'}, room=sid)
         return
 
@@ -99,32 +116,44 @@ def on_send_message(data):
     name = session['name']
     message = data.get('message', '')
 
+    if not message.strip():
+        return
     # encrypt and store
-    iv, ct = encrypt_aes_cbc(key, message)
-    enc_b64 = base64.b64encode(ct).decode()
-    iv_b64 = base64.b64encode(iv).decode()
-    ts = int(time.time())
+    try:
+        iv, ct = encrypt_aes_cbc(key, message)
+        enc_b64 = base64.b64encode(ct).decode()
+        iv_b64 = base64.b64encode(iv).decode()
+        ts = int(time.time())
 
-    entry = {'sender': name, 'enc': enc_b64, 'iv': iv_b64, 'ts': ts}
-    room_messages.setdefault(room, []).append(entry)
+        entry = {'sender': name, 'enc': enc_b64, 'iv': iv_b64, 'ts': ts}
+        room_messages.setdefault(room, []).append(entry)
 
-    # For demo: decrypt with the same key and broadcast both readable and stored encrypted form
-    plaintext = decrypt_aes_cbc(key, iv, ct)
+        # For demo: decrypt with the same key and broadcast both readable and stored encrypted form
+        plaintext = decrypt_aes_cbc(key, iv, ct)
 
-    emit('message', {
-        'sender': name,
-        'plaintext': plaintext,
-        'encrypted': enc_b64,
-        'iv': iv_b64,
-        'timestamp': ts
-    }, room=room)
+        print(f"Broadcasting message from {name} in room {room}")  # Debug log
+        emit('message', {
+            'sender': name,
+            'plaintext': plaintext,
+            'encrypted': enc_b64,
+            'iv': iv_b64,
+            'timestamp': ts
+        }, room=room)
+    except Exception as e:
+        print(f"Message encryption/broadcast error: {e}")
+        emit('error', {'msg': 'Failed to send message'}, room=sid)
 
 @socketio.on('disconnect')
 def on_disconnect():
+    print(f"User disconnected: {request.sid}")  # Debug log
     session = session_keys.pop(request.sid, None)
     if session:
         emit('status', {'msg': f"{session['name']} disconnected."}, room=session['room'])
 
+@socketio.on('connect')
+def on_connect():
+    print(f"User connected: {request.sid}")  # Debug log
 if __name__ == '__main__':
     # use eventlet for SocketIO
+    print("Starting Flask-SocketIO server...")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

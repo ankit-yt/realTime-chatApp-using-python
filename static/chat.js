@@ -1,4 +1,6 @@
-const socket = io();
+const socket = io({
+  transports: ['websocket', 'polling']
+});
 
 const joinBtn = document.getElementById('joinBtn');
 const nameInput = document.getElementById('name');
@@ -10,6 +12,19 @@ const status = document.getElementById('status');
 const messagesEl = document.getElementById('messages');
 const msgInput = document.getElementById('msgInput');
 const sendBtn = document.getElementById('sendBtn');
+
+// Connection status
+socket.on('connect', () => {
+  console.log('Connected to server');
+  status.textContent = 'Connected';
+});
+
+socket.on('disconnect', () => {
+  console.log('Disconnected from server');
+  status.textContent = 'Disconnected';
+  msgInput.disabled = true;
+  sendBtn.disabled = true;
+});
 
 function appendMessage(data, mine=false) {
   const wrapper = document.createElement('div');
@@ -38,16 +53,15 @@ joinBtn.addEventListener('click', () => {
   const room = roomInput.value.trim() || 'lobby';
   const password = passInput.value || '';
 
+  console.log('Attempting to join:', { name, room, password: '***' });
   socket.emit('join', { name, room, password });
-  roomLabel.textContent = `Room: ${room}`;
-  status.textContent = 'Joined';
-  msgInput.disabled = false;
-  sendBtn.disabled = false;
+  status.textContent = 'Joining...';
 });
 
 sendBtn.addEventListener('click', () => {
   const txt = msgInput.value.trim();
   if (!txt) return;
+  console.log('Sending message:', txt);
   socket.emit('send_message', { message: txt });
   msgInput.value = '';
 });
@@ -57,6 +71,12 @@ msgInput.addEventListener('keydown', (e) => {
 });
 
 socket.on('joined', (data) => {
+  console.log('Successfully joined room:', data);
+  roomLabel.textContent = `Room: ${data.room}`;
+  status.textContent = 'Joined';
+  msgInput.disabled = false;
+  sendBtn.disabled = false;
+  
   // show history (server already decrypted with derived key on server side)
   messagesEl.innerHTML = '';
   const history = data.history || [];
@@ -64,12 +84,14 @@ socket.on('joined', (data) => {
 });
 
 socket.on('message', (data) => {
+  console.log('Received message:', data);
   // data: { sender, plaintext, encrypted, iv, timestamp }
   const mine = (data.sender === nameInput.value.trim());
   appendMessage(data, mine);
 });
 
 socket.on('status', (d) => {
+  console.log('Status update:', d);
   // small status messages
   const el = document.createElement('div');
   el.className = 'small';
@@ -81,5 +103,7 @@ socket.on('status', (d) => {
 });
 
 socket.on('error', (d) => {
+  console.error('Socket error:', d);
   alert(d.msg || 'Error');
+  status.textContent = 'Error';
 });
